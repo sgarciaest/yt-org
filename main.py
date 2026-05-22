@@ -1,5 +1,3 @@
-import csv
-import json
 import sys
 from pathlib import Path
 
@@ -14,9 +12,12 @@ from classification.embeddings import EmbeddingClassifier
 from config import load_config, load_topics_config
 from domain.topic import Topic
 from domain.video import Video
+from sources.file_source import FileSource
+from sources.yt_api_source import YouTubeAPISource
+from sources.yt_dlp_source import YtDlpSource
 from storage.proposal_io import load_proposal, save_proposal
 from storage.run_io import append_history, save_applied
-from storage.run_manager import Run, create_run, list_runs, resolve_run
+from storage.run_manager import create_run, list_runs, resolve_run
 from workflow.analyze import run_analysis
 from workflow.apply import run_apply
 from youtube.auth import get_credentials
@@ -48,54 +49,87 @@ def cli() -> None:
     "--from-file",
     default=None,
     metavar="FILE",
-    help="Load videos from a CSV (Takeout), YAML, or JSON file instead of the YouTube API",
+    help="CSV (Google Takeout), YAML, or JSON file with Watch Later videos",
 )
-def analyze(config: str, topics: str, from_file: str | None) -> None:
-    """Create a new run and classify Watch Later videos into a proposal."""
+@click.option(
+    "--from-yt-api",
+    is_flag=True,
+    default=False,
+    help="YouTube Data API v3 (currently blocked by Google for Watch Later)",
+)
+@click.option(
+    "--from-yt-dlp",
+    is_flag=True,
+    default=False,
+    help="yt-dlp with browser cookies (not yet implemented)",
+)
+def analyze(
+    config: str,
+    topics: str,
+    from_file: str | None,
+    from_yt_api: bool,
+    from_yt_dlp: bool,
+) -> None:
+    """Create a new run and classify Watch Later videos into a proposal.
+
+    Exactly one source flag must be provided.
+    """
     cfg = load_config(config)
     topic_list = _build_topics(topics)
 
-    run = create_run(RUNS_DIR)
-    log.info("Created run", run=run.name, folder=str(run.folder))
+    # --- validate source selection ---
+    sources_given = sum([bool(from_file), from_yt_api, from_yt_dlp])
+    if sources_given == 0:
+        raise click.UsageError(
+            "Specify a source:\n"
+            "  --from-file <path>   Google Takeout CSV, YAML, or JSON  [recommended]\n"
+            "  --from-yt-api        YouTube Data API v3  [currently blocked by Google]\n"
+            "  --from-yt-dlp        yt-dlp with browser cookies  [not yet implemented]"
+        )
+    if sources_given > 1:
+        raise click.UsageError("Only one source flag may be used at a time.")
+
+    # --- build source ---
+    credentials = _load_credentials_if_available(cfg)
 
     if from_file:
-        videos = _load_videos_from_file(from_file)
-        log.info("Loaded videos from file", path=from_file, count=len(videos))
-        try:
-            credentials = get_credentials(
-                cfg.youtube.client_secrets_file, cfg.youtube.token_file
+        source = FileSource(Path(from_file))
+    elif from_yt_api:
+        if credentials is None:
+            raise click.UsageError(
+                "client_secrets.json not found. "
+                "OAuth credentials are required for --from-yt-api."
             )
-            yt_client = YouTubeClient(credentials)
-            log.info("Enriching metadata from YouTube API…")
-            videos = yt_client.enrich_videos(videos)
-        except FileNotFoundError:
-            log.info("No credentials — classifying with available data only")
+        source = YouTubeAPISource(YouTubeClient(credentials))
     else:
-        credentials = get_credentials(
-            cfg.youtube.client_secrets_file, cfg.youtube.token_file
-        )
-        yt = YouTubeClient(credentials)
-        videos = yt.get_watch_later_videos()
+        source = YtDlpSource()
 
-        if not videos:
-            click.echo(
-                "No videos returned from Watch Later.\n"
-                "The YouTube API restricts Watch Later access.\n"
-                "Export your Watch Later playlist and run:\n"
-                "  yt-org analyze --from-file watch_later.csv",
-                err=True,
-            )
-            run.folder.rmdir()
-            sys.exit(1)
+    # --- fetch ---
+    run = create_run(RUNS_DIR)
+    log.info("Created run", run=run.name, source=source.source_name)
 
-        log.info("Enriching video metadata…")
-        videos = yt.enrich_videos(videos)
+    try:
+        videos = source.fetch()
+    except (RuntimeError, NotImplementedError) as e:
+        click.echo(str(e), err=True)
+        run.folder.rmdir()
+        sys.exit(1)
 
+    log.info("Fetched videos", source=source.source_name, count=len(videos))
+
+    # --- enrich: fill title/description/tags/channel via videos.list ---
+    # Always attempted when credentials are available; idempotent for already-complete videos.
+    if credentials is not None:
+        log.info("Enriching metadata from YouTube API…")
+        videos = YouTubeClient(credentials).enrich_videos(videos)
+    else:
+        log.warning("No YouTube credentials — skipping enrichment, classification quality may be lower")
+
+    # --- classify ---
     classifier = EmbeddingClassifier(
         model_name=cfg.classification.model,
         weights=cfg.classification.weights.as_dict(),
     )
-
     proposal = run_analysis(videos, topic_list, classifier, cfg)
     save_proposal(proposal, run.proposal_path)
 
@@ -193,7 +227,7 @@ def list_command() -> None:
     """List all runs and their status."""
     runs = list_runs(RUNS_DIR)
     if not runs:
-        click.echo("No runs yet. Start with: yt-org analyze")
+        click.echo("No runs yet. Start with: yt-org analyze --from-file <path>")
         return
 
     click.echo(f"\n  {'#':<6} {'Date':<14} {'Proposal':<10} {'Plan':<8} Applied")
@@ -232,15 +266,24 @@ def show(run_id: str) -> None:
         try:
             data = yaml.safe_load(path.read_text()) or {}
             videos = data.get("videos", [])
-            counts = {a: sum(1 for v in videos if v.get("action") == a) for a in ("move", "review", "keep")}
-            click.echo(f"  {label}: {len(videos)} videos  |  move {counts['move']}  review {counts['review']}  keep {counts['keep']}")
+            counts = {
+                a: sum(1 for v in videos if v.get("action") == a)
+                for a in ("move", "review", "keep")
+            }
+            click.echo(
+                f"  {label}: {len(videos)} videos  |  "
+                f"move {counts['move']}  review {counts['review']}  keep {counts['keep']}"
+            )
         except Exception as e:
             click.echo(f"  {label}: error reading — {e}")
 
     if run.applied_path.exists():
         try:
             data = yaml.safe_load(run.applied_path.read_text()) or {}
-            click.echo(f"  applied.yaml: {data.get('total_moved', '?')} moved  at {data.get('applied_at', '?')}")
+            click.echo(
+                f"  applied.yaml: {data.get('total_moved', '?')} moved"
+                f"  at {data.get('applied_at', '?')}"
+            )
         except Exception as e:
             click.echo(f"  applied.yaml: error reading — {e}")
     else:
@@ -254,43 +297,12 @@ def _build_topics(topics_path: str) -> list[Topic]:
     return [Topic(name=name, description=desc) for name, desc in raw.items()]
 
 
-def _load_videos_from_file(path: str) -> list[Video]:
-    p = Path(path)
-    if p.suffix == ".csv":
-        return _load_takeout_csv(p)
-    with p.open(encoding="utf-8") as f:
-        data = yaml.safe_load(f) if p.suffix in (".yaml", ".yml") else json.load(f)
-    raw = data.get("videos", data) if isinstance(data, dict) else data
-    return [
-        Video(
-            video_id=item.get("video_id", item.get("id", "")),
-            title=item.get("title", ""),
-            description=item.get("description", ""),
-            tags=item.get("tags", []),
-            channel_name=item.get("channel_name", item.get("channel", "")),
-            category_id=item.get("category_id"),
-        )
-        for item in raw
-    ]
-
-
-def _load_takeout_csv(path: Path) -> list[Video]:
-    """Parse a Google Takeout Watch Later CSV (Video ID, Timestamp columns)."""
-    with path.open(encoding="utf-8", newline="") as f:
-        lines = [l for l in f.readlines() if not l.lstrip().startswith("#")]
-    videos: list[Video] = []
-    for row in csv.DictReader(lines):
-        # Google Takeout uses Spanish or English column names depending on account language
-        video_id = (
-            row.get("Video ID")
-            or row.get("video_id")
-            or row.get("ID de vídeo")
-            or row.get("ID de video")
-            or ""
-        ).strip()
-        if video_id:
-            videos.append(Video(video_id=video_id, title=""))
-    return videos
+def _load_credentials_if_available(cfg) -> object | None:
+    """Return credentials if client_secrets.json exists, None otherwise."""
+    try:
+        return get_credentials(cfg.youtube.client_secrets_file, cfg.youtube.token_file)
+    except FileNotFoundError:
+        return None
 
 
 if __name__ == "__main__":
