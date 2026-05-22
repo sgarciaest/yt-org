@@ -1,0 +1,63 @@
+# Sample Watch Later export for offline testing.
+# Pass with: yt-org analyze --from-file tests/fixtures/sample_videos.yaml
+
+videos:
+  - video_id: "v001"
+    title: "Advanced bouldering technique - campus board session"
+    description: "Full campus board training session focused on contact strength and deadpoints"
+    tags: ["bouldering", "climbing", "campus board", "training", "strength"]
+    channel_name: "Lattice Training"
+
+  - video_id: "v002"
+    title: "Técnicas de escalada en roca para principiantes"
+    description: "Aprende las técnicas básicas de escalada deportiva en roca natural"
+    tags: ["escalada", "búlder", "entrenamiento", "roca"]
+    channel_name: "Escalada España"
+
+  - video_id: "v003"
+    title: "How to build a diversified ETF portfolio for long-term investing"
+    description: "A complete guide to constructing a passive index fund portfolio"
+    tags: ["investing", "ETF", "index funds", "personal finance", "stocks"]
+    channel_name: "Ben Felix"
+
+  - video_id: "v004"
+    title: "Darktable 4.6 - filmic rgb mastery guide"
+    description: "Deep dive into the filmic rgb module for natural tone mapping"
+    tags: ["darktable", "RAW editing", "filmic rgb", "photo workflow", "Linux"]
+    channel_name: "Boris Hajduk"
+
+  - video_id: "v005"
+    title: "Composición fotográfica - reglas que debes romper"
+    description: "Cómo usar la regla de tercios y cuándo ignorarla"
+    tags: ["fotografía", "composición", "cámara", "encuadre"]
+    channel_name: "Fotografía Pro"
+
+  - video_id: "v006"
+    title: "Formula 1 2025 season review - best overtakes"
+    description: "Highlights of the most spectacular F1 overtakes this season"
+    tags: ["Formula 1", "F1", "motorsport", "racing", "overtakes"]
+    channel_name: "F1 Official"
+
+  - video_id: "v007"
+    title: "Receta de paella valenciana auténtica paso a paso"
+    description: "La receta tradicional de paella valenciana con pollo y conejo"
+    tags: ["receta", "paella", "cocina española", "arroz", "gastronomía"]
+    channel_name: "Cocina con Carmen"
+
+  - video_id: "v008"
+    title: "NBA Finals 2025 - greatest moments"
+    description: "The most memorable plays and dunks from the NBA Finals"
+    tags: ["NBA", "basketball", "playoffs", "slam dunk", "finals"]
+    channel_name: "NBA Official"
+
+  - video_id: "v009"
+    title: "Cómo aprender teoría musical desde cero"
+    description: "Guía completa de solfeo, escalas y acordes para principiantes"
+    tags: ["música", "teoría musical", "solfeo", "guitarra", "piano"]
+    channel_name: "Música Fácil"
+
+  - video_id: "v010"
+    title: "Something completely random with no clear topic"
+    description: "A very general video that does not fit into any specific category"
+    tags: []
+    channel_name: "Random Channel"

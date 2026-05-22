@@ -1,0 +1,19 @@
+youtube:
+  client_secrets_file: client_secrets.json
+  token_file: .token.json
+
+classification:
+  model: paraphrase-multilingual-MiniLM-L12-v2
+
+  weights:
+    title: 3.0
+    tags: 2.0
+    channel: 1.5
+    description: 1.0
+
+  thresholds:
+    move: 0.75
+    review: 0.35
+
+  top_n_alternatives: 3
+

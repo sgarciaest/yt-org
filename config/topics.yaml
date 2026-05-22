@@ -1,0 +1,58 @@
+topics:
+
+  escalada:
+    description: >
+      Rock climbing, bouldering, sport climbing, trad climbing,
+      climbing training, technique, footwork, holds, gear,
+      outdoor climbing, indoor climbing, escalada, búlder,
+      entrenamiento escalada, roca, grigi, knots.
+
+  baloncesto:
+    description: >
+      Basketball, NBA, plays, training, skills, dribbling,
+      shooting, defense, basketball strategy, baloncesto,
+      playoffs, slam dunk, MVPs.
+
+  fútbol:
+    description: >
+      Football, soccer, goals, skills, tactics, leagues,
+      Premier League, La Liga, Champions League, fútbol,
+      partido, jugadas, entrenamiento fútbol, Maldini.
+
+  inversión:
+    description: >
+      Investing, personal finance, stock market, ETFs,
+      bonds, real estate, long-term investing, financial planning,
+      inversión, finanzas personales, bolsa, dividendos,
+      cartera, rentabilidad, ahorro, La Pizarra de Andrés, renta variable, renta fija, myinvestor.
+
+  darktable:
+    description: >
+      Darktable tutorials, RAW photo editing, photo workflow,
+      photo processing, tone mapping, color grading in Darktable,
+      filmic rgb, exposure module, negadoctor, darktable workflows.
+
+  fotografía:
+    description: >
+      Photography, camera techniques, composition, lighting,
+      portrait photography, landscape photography, street photography,
+      fotografía, cámara, lente, objetivo, encuadre, exposición,
+      vintage lenses, lens.
+
+  automovilismo:
+    description: >
+      Motorsport, Formula 1, cars, racing, car reviews,
+      driving, automotive, mechanics, F1, rally, automovilismo,
+      coches, circuito, velocidad.
+
+  comida:
+    description: >
+      Cooking, recipes, food, gastronomy, restaurants,
+      culinary techniques, baking, cocina, recetas, gastronomía,
+      ingredientes, platos, chef.
+
+  música:
+    description: >
+      Music, instruments, guitar, piano, music theory,
+      concerts, music production, bands, artists, música,
+      guitarra, piano, teoría musical, producción musical, cultura musical.
