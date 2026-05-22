@@ -29,3 +29,4 @@ data/*
 !data/.gitkeep
 
 config/channel_topics.yaml
+config/topics.yaml
