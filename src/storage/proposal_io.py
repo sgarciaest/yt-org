@@ -6,6 +6,15 @@ import yaml
 from domain.proposal import Proposal, VideoProposal
 
 
+# Maximum lengths for human-readable YAML output.
+# The full strings are kept in memory for the classifier; only the YAML is truncated.
+_TITLE_MAX = 120
+_CHANNEL_MAX = 80
+_DESCRIPTION_MAX = 300
+_TAG_MAX = 50
+_TAGS_MAX_COUNT = 8
+
+
 def save_proposal(proposal: Proposal, path: str | Path) -> None:
     data = _to_dict(proposal)
     Path(path).write_text(
@@ -27,19 +36,35 @@ def _to_dict(proposal: Proposal) -> dict:
             "auto_move": proposal.move_threshold,
             "review": proposal.review_threshold,
         },
-        "videos": [
-            {
-                "video_id": vp.video_id,
-                "title": vp.title,
-                "predicted_topic": vp.predicted_topic,
-                "confidence": round(vp.confidence, 4),
-                "alternatives": {k: round(v, 4) for k, v in vp.alternatives.items()},
-                "action": vp.action,
-                **({"playlist_item_id": vp.playlist_item_id} if vp.playlist_item_id else {}),
-            }
-            for vp in proposal.videos
-        ],
+        "videos": [_video_to_dict(vp) for vp in proposal.videos],
     }
+
+
+def _video_to_dict(vp: VideoProposal) -> dict:
+    # Source data block first so the human can read it before the classification block
+    entry: dict = {
+        "video_id": vp.video_id,
+        "title": _clip(vp.title, _TITLE_MAX),
+        "channel": _clip(vp.channel_name, _CHANNEL_MAX),
+    }
+
+    if vp.tags:
+        clipped_tags = [_clip(t, _TAG_MAX) for t in vp.tags[:_TAGS_MAX_COUNT]]
+        entry["tags"] = clipped_tags
+
+    if vp.description:
+        entry["description"] = _clip(vp.description, _DESCRIPTION_MAX)
+
+    # Classification results block
+    entry["predicted_topic"] = vp.predicted_topic
+    entry["confidence"] = round(vp.confidence, 4)
+    entry["alternatives"] = {k: round(v, 4) for k, v in vp.alternatives.items()}
+    entry["action"] = vp.action
+
+    if vp.playlist_item_id:
+        entry["playlist_item_id"] = vp.playlist_item_id
+
+    return entry
 
 
 def _from_dict(data: dict) -> Proposal:
@@ -47,11 +72,14 @@ def _from_dict(data: dict) -> Proposal:
     videos = [
         VideoProposal(
             video_id=v["video_id"],
-            title=v["title"],
+            title=v.get("title", ""),
             predicted_topic=v.get("predicted_topic"),
             confidence=float(v.get("confidence", 0.0)),
             alternatives=v.get("alternatives", {}),
             action=v.get("action", "keep"),
+            channel_name=v.get("channel", ""),
+            description=v.get("description", ""),
+            tags=v.get("tags", []),
             playlist_item_id=v.get("playlist_item_id"),
         )
         for v in data.get("videos", [])
@@ -62,3 +90,9 @@ def _from_dict(data: dict) -> Proposal:
         review_threshold=float(thresholds.get("review", 0.60)),
         videos=videos,
     )
+
+
+def _clip(text: str, max_len: int) -> str:
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 3] + "..."

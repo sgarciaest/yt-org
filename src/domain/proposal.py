@@ -14,6 +14,9 @@ class VideoProposal:
     confidence: float
     alternatives: dict[str, float]
     action: Action
+    channel_name: str = ""
+    description: str = ""
+    tags: list[str] = field(default_factory=list)
     playlist_item_id: str | None = None
 
 

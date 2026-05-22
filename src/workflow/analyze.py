@@ -42,6 +42,9 @@ def run_analysis(
                 confidence=confidence,
                 alternatives=alternatives,
                 action=action,
+                channel_name=video.channel_name,
+                description=video.description,
+                tags=video.tags,
                 playlist_item_id=video.playlist_item_id,
             )
         )
