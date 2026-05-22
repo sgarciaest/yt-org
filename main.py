@@ -1,4 +1,5 @@
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # src/ is the package root for all application modules
@@ -18,7 +19,7 @@ from sources.yt_api_source import YouTubeAPISource
 from sources.yt_dlp_source import YtDlpSource
 from storage.channel_map_io import load_channel_map, merge_channels, save_channel_map
 from storage.proposal_io import load_proposal, save_proposal
-from storage.run_io import append_history, save_applied
+from storage.run_io import append_history, save_applied, save_run_meta
 from storage.run_manager import create_run, list_runs, resolve_run
 from workflow.analyze import run_analysis
 from workflow.apply import run_apply
@@ -151,6 +152,49 @@ def analyze(
     review_count = sum(1 for v in proposal.videos if v.action == "review")
     keep_count = sum(1 for v in proposal.videos if v.action == "keep")
 
+    # Videos with no title after enrichment are private/deleted/region-blocked
+    missing = sum(1 for v in videos if not v.title)
+    save_run_meta(
+        {
+            "run_id": run.id,
+            "analyzed_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+            "source": {
+                "name": source.source_name,
+                **({"file": from_file} if from_file else {}),
+            },
+            "videos": {
+                "fetched": len(videos),
+                "enriched": len(videos) - missing,
+                "missing": missing,
+            },
+            "proposal": {
+                "total": len(proposal.videos),
+                "move": move_count,
+                "review": review_count,
+                "keep": keep_count,
+            },
+            "classification": {
+                "model": cfg.classification.model,
+                "weights": cfg.classification.weights.as_dict(),
+                "thresholds": {
+                    "move": cfg.classification.thresholds.move,
+                    "review": cfg.classification.thresholds.review,
+                },
+                "top_n_alternatives": cfg.classification.top_n_alternatives,
+            },
+            "channel_mapping": {
+                "active": channel_mapper is not None,
+                "bonus": cfg.channel_mapping.bonus,
+                "mapped_channels": channel_mapper.size if channel_mapper else 0,
+            },
+            "topics": {
+                "count": len(topic_list),
+                "names": [t.name for t in topic_list],
+            },
+        },
+        run.meta_path,
+    )
+
     click.echo(f"\nRun {run.id} created  →  {run.folder}/")
     click.echo(f"  proposal.yaml  ({len(proposal.videos)} videos)")
     click.echo(f"  move:    {move_count}")
@@ -272,6 +316,30 @@ def show(run_id: str) -> None:
         sys.exit(1)
 
     click.echo(f"\nRun {run.id}  —  {run.date}  —  {run.folder}/\n")
+
+    if run.meta_path.exists():
+        try:
+            m = yaml.safe_load(run.meta_path.read_text()) or {}
+            src = m.get("source", {})
+            vids = m.get("videos", {})
+            cl = m.get("classification", {})
+            th = cl.get("thresholds", {})
+            cm = m.get("channel_mapping", {})
+            src_label = src.get("name", src.get("type", "?"))
+            if src.get("file"):
+                src_label += f" ({src['file']})"
+            enriched_info = f"{vids.get('fetched', '?')} fetched"
+            if vids.get("missing", 0):
+                enriched_info += f" ({vids['missing']} missing)"
+            click.echo(
+                f"  meta.yaml:     {src_label} | {enriched_info} | "
+                f"move≥{th.get('move', '?')} review≥{th.get('review', '?')} | "
+                f"bonus={cm.get('bonus', '?')} ({cm.get('mapped_channels', 0)} channels)"
+            )
+        except Exception as e:
+            click.echo(f"  meta.yaml: error reading — {e}")
+    else:
+        click.echo("  meta.yaml: not found (run predates this feature)")
 
     for label, path in [("proposal.yaml", run.proposal_path), ("plan.yaml", run.plan_path)]:
         if not path.exists():

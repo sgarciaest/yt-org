@@ -33,6 +33,10 @@ class Run:
     def applied_path(self) -> Path:
         return self.folder / "applied.yaml"
 
+    @property
+    def meta_path(self) -> Path:
+        return self.folder / "meta.yaml"
+
 
 def create_run(base_dir: Path) -> Run:
     base_dir.mkdir(parents=True, exist_ok=True)

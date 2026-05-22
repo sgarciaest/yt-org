@@ -5,6 +5,14 @@ import yaml
 from domain.run import AppliedLog
 
 
+def save_run_meta(data: dict, path: Path) -> None:
+    """Persist the run metadata snapshot."""
+    path.write_text(
+        yaml.dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False),
+        encoding="utf-8",
+    )
+
+
 def save_applied(applied: AppliedLog, path: Path) -> None:
     path.write_text(
         yaml.dump(_to_dict(applied), allow_unicode=True, sort_keys=False, default_flow_style=False),
