@@ -17,6 +17,10 @@ class VideoProposal:
     channel_name: str = ""
     description: str = ""
     tags: list[str] = field(default_factory=list)
+    # Set when channel mapping is active. None means no mapping was found.
+    channel_match: str | None = None
+    # AI-only score before channel boost. None when no channel mapper is loaded.
+    ai_confidence: float | None = None
     playlist_item_id: str | None = None
 
 

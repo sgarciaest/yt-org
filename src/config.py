@@ -41,9 +41,16 @@ class YouTubeConfig:
 
 
 @dataclass
+class ChannelMappingConfig:
+    config_file: str = "config/channel_topics.yaml"
+    bonus: float = 0.25
+
+
+@dataclass
 class AppConfig:
     youtube: YouTubeConfig = field(default_factory=YouTubeConfig)
     classification: ClassificationConfig = field(default_factory=ClassificationConfig)
+    channel_mapping: ChannelMappingConfig = field(default_factory=ChannelMappingConfig)
 
 
 def load_config(path: str | Path = "config/settings.yaml") -> AppConfig:
@@ -82,7 +89,26 @@ def load_config(path: str | Path = "config/settings.yaml") -> AppConfig:
         "review", cfg.classification.thresholds.review
     )
 
+    cm = data.get("channel_mapping", {})
+    cfg.channel_mapping.config_file = cm.get("config_file", cfg.channel_mapping.config_file)
+    cfg.channel_mapping.bonus = cm.get("bonus", cfg.channel_mapping.bonus)
+
     return cfg
+
+
+def load_channel_mapping(path: str | Path = "config/channel_topics.yaml") -> dict[str, str]:
+    """Return {channel_name: topic} for all entries that have a non-null topic."""
+    p = Path(path)
+    if not p.exists():
+        return {}
+    with p.open() as f:
+        data = yaml.safe_load(f) or {}
+    result: dict[str, str] = {}
+    for channel, details in data.get("channel_topics", {}).items():
+        topic = details.get("topic") if isinstance(details, dict) else details
+        if topic:
+            result[channel] = topic
+    return result
 
 
 def load_topics_config(path: str | Path = "config/topics.yaml") -> dict[str, str]:

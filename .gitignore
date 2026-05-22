@@ -27,3 +27,5 @@ runs/*
 
 data/*
 !data/.gitkeep
+
+config/channel_topics.yaml

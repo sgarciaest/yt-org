@@ -56,6 +56,10 @@ def _video_to_dict(vp: VideoProposal) -> dict:
         entry["description"] = _clip(vp.description, _DESCRIPTION_MAX)
 
     # Classification results block
+    if vp.channel_match is not None:
+        entry["channel_match"] = vp.channel_match
+        entry["ai_confidence"] = round(vp.ai_confidence, 4) if vp.ai_confidence is not None else None
+
     entry["predicted_topic"] = vp.predicted_topic
     entry["confidence"] = round(vp.confidence, 4)
     entry["alternatives"] = {k: round(v, 4) for k, v in vp.alternatives.items()}
@@ -80,6 +84,8 @@ def _from_dict(data: dict) -> Proposal:
             channel_name=v.get("channel", ""),
             description=v.get("description", ""),
             tags=v.get("tags", []),
+            channel_match=v.get("channel_match"),
+            ai_confidence=v.get("ai_confidence"),
             playlist_item_id=v.get("playlist_item_id"),
         )
         for v in data.get("videos", [])

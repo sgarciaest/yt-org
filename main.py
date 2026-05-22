@@ -8,13 +8,15 @@ import click
 import structlog
 import yaml
 
+from classification.channel_mapper import ChannelMapper
 from classification.embeddings import EmbeddingClassifier
-from config import load_config, load_topics_config
+from config import load_channel_mapping, load_config, load_topics_config
 from domain.topic import Topic
 from domain.video import Video
 from sources.file_source import FileSource
 from sources.yt_api_source import YouTubeAPISource
 from sources.yt_dlp_source import YtDlpSource
+from storage.channel_map_io import load_channel_map, merge_channels, save_channel_map
 from storage.proposal_io import load_proposal, save_proposal
 from storage.run_io import append_history, save_applied
 from storage.run_manager import create_run, list_runs, resolve_run
@@ -23,6 +25,7 @@ from workflow.apply import run_apply
 from youtube.auth import get_credentials
 from youtube.client import YouTubeClient
 from youtube.playlists import PlaylistManager
+from youtube.subscriptions import SubscriptionsFetcher
 
 
 structlog.configure(
@@ -130,7 +133,18 @@ def analyze(
         model_name=cfg.classification.model,
         weights=cfg.classification.weights.as_dict(),
     )
-    proposal = run_analysis(videos, topic_list, classifier, cfg)
+    channel_mapping = load_channel_mapping(cfg.channel_mapping.config_file)
+    channel_mapper = (
+        ChannelMapper(channel_mapping, cfg.channel_mapping.bonus)
+        if channel_mapping
+        else None
+    )
+    if channel_mapper:
+        log.info("Channel mapping loaded", channels=channel_mapper.size)
+    else:
+        log.info("No channel mapping found — using AI only", hint=f"Run: yt-org channels --help")
+
+    proposal = run_analysis(videos, topic_list, classifier, cfg, channel_mapper)
     save_proposal(proposal, run.proposal_path)
 
     move_count = sum(1 for v in proposal.videos if v.action == "move")
@@ -290,6 +304,132 @@ def show(run_id: str) -> None:
         click.echo("  applied.yaml: not yet applied")
 
     click.echo()
+
+
+@cli.command()
+@click.option("--config", default="config/settings.yaml", show_default=True)
+@click.option(
+    "--from-subscriptions",
+    is_flag=True,
+    default=False,
+    help="Add channels from your YouTube subscriptions list",
+)
+@click.option(
+    "--from-file",
+    default=None,
+    metavar="FILE",
+    help="Add channels found in a Watch Later file (CSV/YAML/JSON)",
+)
+@click.option(
+    "--from-yt-api",
+    is_flag=True,
+    default=False,
+    help="Add channels found in Watch Later via YouTube API (currently blocked by Google)",
+)
+@click.option(
+    "--output",
+    default=None,
+    metavar="PATH",
+    help="Output file (default: channel_mapping.config_file from settings)",
+)
+def channels(
+    config: str,
+    from_subscriptions: bool,
+    from_file: str | None,
+    from_yt_api: bool,
+    output: str | None,
+) -> None:
+    """Build or update the channel-to-topic mapping config.
+
+    Collects channel names from the chosen sources, merges them into
+    config/channel_topics.yaml (preserving any existing topic assignments),
+    and adds new entries with topic: null for you to fill in.
+
+    At least one source flag is required. Multiple flags can be combined.
+    """
+    cfg = load_config(config)
+    out_path = Path(output or cfg.channel_mapping.config_file)
+
+    if not from_subscriptions and not from_file and not from_yt_api:
+        raise click.UsageError(
+            "Specify at least one source:\n"
+            "  --from-subscriptions   Your YouTube subscriptions\n"
+            "  --from-file <path>     Watch Later CSV/YAML/JSON\n"
+            "  --from-yt-api          Watch Later via YouTube API (blocked)"
+        )
+
+    credentials = _load_credentials_if_available(cfg)
+    collected: set[str] = set()
+
+    # --- subscriptions ---
+    if from_subscriptions:
+        if credentials is None:
+            raise click.UsageError(
+                "client_secrets.json not found. OAuth is required for --from-subscriptions."
+            )
+        log.info("Fetching subscriptions…")
+        fetcher = SubscriptionsFetcher(credentials)
+        subs = fetcher.fetch_channel_names()
+        log.info("Subscriptions fetched", count=len(subs))
+        collected |= subs
+
+    # --- watch later channels ---
+    wl_source = None
+    if from_file:
+        wl_source = FileSource(Path(from_file))
+    elif from_yt_api:
+        if credentials is None:
+            raise click.UsageError(
+                "client_secrets.json not found. OAuth is required for --from-yt-api."
+            )
+        wl_source = YouTubeAPISource(YouTubeClient(credentials))
+
+    if wl_source is not None:
+        try:
+            videos = wl_source.fetch()
+        except (RuntimeError, NotImplementedError) as e:
+            click.echo(str(e), err=True)
+            raise SystemExit(1)
+
+        if credentials is not None:
+            log.info("Enriching video metadata to extract channel names…")
+            videos = YouTubeClient(credentials).enrich_videos(videos)
+
+        wl_channels = {v.channel_name for v in videos if v.channel_name}
+        log.info("Channels extracted from Watch Later", count=len(wl_channels))
+        collected |= wl_channels
+
+    if not collected:
+        click.echo("No channels found from the given sources. Nothing written.")
+        return
+
+    # --- merge with existing ---
+    existing = load_channel_map(out_path)
+    merged, added = merge_channels(existing, collected)
+    save_channel_map(merged, out_path)
+
+    total = len(merged)
+    null_count = sum(1 for v in merged.values() if not v.get("topic"))
+    assigned_count = total - null_count
+
+    click.echo(f"\nChannel map updated  →  {out_path}")
+    click.echo(f"  total channels:  {total}")
+    click.echo(f"  newly added:     {added}")
+    click.echo(f"  with topic:      {assigned_count}")
+    click.echo(f"  needs topic:     {null_count}  ← open {out_path} and fill these in")
+
+    if null_count:
+        topics_hint = _load_topic_names(cfg)
+        click.echo(f"\nAvailable topics: {', '.join(topics_hint)}")
+        click.echo("Set topic: null → topic: <name> for channels you recognise.")
+
+
+def _load_topic_names(cfg) -> list[str]:
+    try:
+        from config import load_topics_config
+        return list(load_topics_config().keys())
+    except Exception:
+        return []
 
 
 def _build_topics(topics_path: str) -> list[Topic]:

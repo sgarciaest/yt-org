@@ -17,3 +17,9 @@ classification:
 
   top_n_alternatives: 3
 
+channel_mapping:
+  config_file: config/channel_topics.yaml
+  # Added to the AI score for the matched topic when a channel mapping exists.
+  # Set to 0.0 to disable without removing the mapping file.
+  bonus: 0.5
+
