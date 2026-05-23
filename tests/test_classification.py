@@ -97,3 +97,68 @@ class TestEmbeddingClassifier:
         result = classifier.classify(video)
         scores = list(result.top_n(5).values())
         assert scores == sorted(scores, reverse=True)
+
+
+class TestMaxPoolSemantics:
+    """Tests that verify per-field max pooling behaviour specifically."""
+
+    def test_strong_title_not_diluted_by_irrelevant_description(
+        self, classifier: EmbeddingClassifier
+    ) -> None:
+        """A perfect title match should not be dragged down by an unrelated description.
+
+        Under the old weighted-average behaviour, the description "Random life
+        thoughts about the weather…" would dilute the strong title signal. Under
+        max pooling, the title alone defines the score for escalada.
+        """
+        # Title-only baseline
+        title_only = Video(
+            video_id="t1",
+            title="Advanced bouldering technique for sport climbing",
+        )
+        # Same title but with an irrelevant description
+        title_plus_noise = Video(
+            video_id="t2",
+            title="Advanced bouldering technique for sport climbing",
+            description="Some general thoughts about my week and the weather lately. "
+            "I went to the supermarket on Tuesday and bought bread.",
+        )
+        score_title_only = classifier.classify(title_only).scores["escalada"]
+        score_with_noise = classifier.classify(title_plus_noise).scores["escalada"]
+
+        # Max pool: noise can only push the score up (if it happens to match) or
+        # leave it unchanged. It must NOT pull a strong title's score down.
+        assert score_with_noise >= score_title_only - 1e-6
+
+    def test_disabled_field_is_excluded(self) -> None:
+        """Setting a field to False removes it from the max pool."""
+        clf = EmbeddingClassifier(
+            fields={"title": False, "tags": True, "channel": False, "description": False}
+        )
+        clf.fit(TOPICS)
+
+        # Title is the only signal but title is disabled → no enabled fields → empty result
+        video = Video(video_id="z1", title="Cooking paella valenciana recipe")
+        result = clf.classify(video)
+        assert result.scores == {}
+
+    def test_description_alone_can_win(self) -> None:
+        """If only description is enabled, the result must come from description."""
+        clf = EmbeddingClassifier(
+            fields={"title": False, "tags": False, "channel": False, "description": True}
+        )
+        clf.fit(TOPICS)
+
+        video = Video(
+            video_id="d1",
+            title="Episode 42",  # uninformative
+            description="A complete guide to investing in ETFs and building a long-term stock portfolio.",
+        )
+        result = clf.classify(video)
+        assert result.top_topic == "inversión"
+
+    def test_empty_video_returns_empty_scores(self, classifier: EmbeddingClassifier) -> None:
+        video = Video(video_id="e1", title="")
+        result = classifier.classify(video)
+        assert result.scores == {}
+        assert result.top_score == 0.0

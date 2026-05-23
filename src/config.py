@@ -5,13 +5,13 @@ import yaml
 
 
 @dataclass
-class WeightsConfig:
-    title: float = 3.0
-    tags: float = 2.0
-    channel: float = 1.5
-    description: float = 1.0
+class FieldsConfig:
+    title: bool = True
+    tags: bool = True
+    channel: bool = True
+    description: bool = True
 
-    def as_dict(self) -> dict[str, float]:
+    def as_dict(self) -> dict[str, bool]:
         return {
             "title": self.title,
             "tags": self.tags,
@@ -29,7 +29,7 @@ class ThresholdsConfig:
 @dataclass
 class ClassificationConfig:
     model: str = "paraphrase-multilingual-MiniLM-L12-v2"
-    weights: WeightsConfig = field(default_factory=WeightsConfig)
+    fields: FieldsConfig = field(default_factory=FieldsConfig)
     thresholds: ThresholdsConfig = field(default_factory=ThresholdsConfig)
     top_n_alternatives: int = 3
 
@@ -75,12 +75,12 @@ def load_config(path: str | Path = "config/settings.yaml") -> AppConfig:
         "top_n_alternatives", cfg.classification.top_n_alternatives
     )
 
-    w = cl.get("weights", {})
-    cfg.classification.weights.title = w.get("title", cfg.classification.weights.title)
-    cfg.classification.weights.tags = w.get("tags", cfg.classification.weights.tags)
-    cfg.classification.weights.channel = w.get("channel", cfg.classification.weights.channel)
-    cfg.classification.weights.description = w.get(
-        "description", cfg.classification.weights.description
+    f = cl.get("fields", {})
+    cfg.classification.fields.title = bool(f.get("title", cfg.classification.fields.title))
+    cfg.classification.fields.tags = bool(f.get("tags", cfg.classification.fields.tags))
+    cfg.classification.fields.channel = bool(f.get("channel", cfg.classification.fields.channel))
+    cfg.classification.fields.description = bool(
+        f.get("description", cfg.classification.fields.description)
     )
 
     t = cl.get("thresholds", {})

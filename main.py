@@ -132,7 +132,7 @@ def analyze(
     # --- classify ---
     classifier = EmbeddingClassifier(
         model_name=cfg.classification.model,
-        weights=cfg.classification.weights.as_dict(),
+        fields=cfg.classification.fields.as_dict(),
     )
     channel_mapping = load_channel_mapping(cfg.channel_mapping.config_file)
     channel_mapper = (
@@ -175,7 +175,7 @@ def analyze(
             },
             "classification": {
                 "model": cfg.classification.model,
-                "weights": cfg.classification.weights.as_dict(),
+                "fields": cfg.classification.fields.as_dict(),
                 "thresholds": {
                     "move": cfg.classification.thresholds.move,
                     "review": cfg.classification.thresholds.review,

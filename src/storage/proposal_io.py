@@ -15,12 +15,19 @@ _TAG_MAX = 50
 _TAGS_MAX_COUNT = 8
 
 
+_ACTION_MARKERS = {
+    "move": "🔀",
+    "review": "👀",
+    "keep": "📌",
+}
+
+
 def save_proposal(proposal: Proposal, path: str | Path) -> None:
     data = _to_dict(proposal)
-    Path(path).write_text(
-        yaml.dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False),
-        encoding="utf-8",
-    )
+    content = yaml.dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    for action, emoji in _ACTION_MARKERS.items():
+        content = content.replace(f"action: {action}\n", f"action: {action}  # {emoji}\n")
+    Path(path).write_text(content, encoding="utf-8")
 
 
 def load_proposal(path: str | Path) -> Proposal:
