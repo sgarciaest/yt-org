@@ -32,6 +32,7 @@ def run_apply(
         try:
             playlist_id = playlist_manager.ensure_playlist(playlist_name)
             playlist_manager.add_video(vp.video_id, playlist_id)
+            wl_removed = playlist_manager.remove_from_watch_later(vp.video_id, vp.playlist_item_id)
             changes.append(
                 AppliedChange(
                     video_id=vp.video_id,
@@ -39,6 +40,7 @@ def run_apply(
                     playlist=playlist_name,
                     status="added",
                     applied_at=datetime.now(timezone.utc),
+                    wl_removed=wl_removed,
                 )
             )
         except Exception as e:

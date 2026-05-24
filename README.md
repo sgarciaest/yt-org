@@ -70,7 +70,9 @@ yt-org apply 13 --dry-run
 yt-org apply 13
 ```
 
-Videos with `action: move` are added to their `WL/<topic>` playlist. You then manually remove them from Watch Later.
+Videos with `action: move` are added to their `WL/<topic>` playlist and removed from Watch Later automatically.
+
+> **Note:** Automatic removal requires that videos were loaded via the YouTube API (which provides a `playlist_item_id`). Videos loaded from a Google Takeout CSV do not include this ID, so Watch Later removal is skipped for those — remove them manually.
 
 ---
 

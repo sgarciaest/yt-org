@@ -97,3 +97,24 @@ class PlaylistManager:
                 log.debug("Video already in playlist, skipping", video_id=video_id)
                 return
             raise
+
+    def remove_from_watch_later(self, video_id: str, playlist_item_id: str | None) -> bool:
+        """Remove a video from Watch Later. Returns True on success, False if skipped or failed."""
+        if not playlist_item_id:
+            log.warning(
+                "Cannot remove from Watch Later: playlist_item_id unknown "
+                "(CSV-loaded videos have no item ID — Watch Later is not listable via the API)",
+                video_id=video_id,
+            )
+            return False
+        try:
+            self._delete_playlist_item(playlist_item_id)
+            log.info("Removed from Watch Later", video_id=video_id)
+            return True
+        except HttpError as e:
+            log.warning("Failed to remove from Watch Later", video_id=video_id, error=str(e))
+            return False
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=15))
+    def _delete_playlist_item(self, playlist_item_id: str) -> None:
+        self._yt.playlistItems().delete(id=playlist_item_id).execute()
