@@ -1,7 +1,7 @@
 import structlog
 from datetime import datetime, timezone
 
-from domain.proposal import Proposal
+from domain.proposal import Proposal, VideoProposal
 from domain.run import AppliedChange, AppliedLog
 from youtube.playlists import PlaylistManager
 
@@ -13,18 +13,27 @@ def run_apply(
     plan: Proposal,
     playlist_manager: PlaylistManager,
     run_id: str,
+    fallback_name: str,
     dry_run: bool = False,
 ) -> AppliedLog:
-    to_move = [vp for vp in plan.videos if vp.action == "move" and vp.predicted_topic]
-    skipped = len(plan.videos) - len(to_move)
+    to_topics = sum(1 for vp in plan.videos if _destination_topic(vp) is not None)
+    to_fallback = len(plan.videos) - to_topics
 
-    log.info("Apply plan", to_move=len(to_move), skipped=skipped, dry_run=dry_run)
+    log.info(
+        "Apply plan",
+        total=len(plan.videos),
+        to_topics=to_topics,
+        to_fallback=to_fallback,
+        fallback_name=fallback_name,
+        dry_run=dry_run,
+    )
 
     changes: list[AppliedChange] = []
 
-    for vp in to_move:
-        playlist_name = f"WL/{vp.predicted_topic}"
-        log.info("Moving video", title=vp.title[:60], playlist=playlist_name, dry_run=dry_run)
+    for vp in plan.videos:
+        topic = _destination_topic(vp)
+        playlist_name = f"WL/{topic}" if topic else f"WL/{fallback_name}"
+        log.info("Adding video", title=vp.title[:60], playlist=playlist_name, dry_run=dry_run)
 
         if dry_run:
             continue
@@ -32,7 +41,6 @@ def run_apply(
         try:
             playlist_id = playlist_manager.ensure_playlist(playlist_name)
             playlist_manager.add_video(vp.video_id, playlist_id)
-            wl_removed = playlist_manager.remove_from_watch_later(vp.video_id, vp.playlist_item_id)
             changes.append(
                 AppliedChange(
                     video_id=vp.video_id,
@@ -40,11 +48,10 @@ def run_apply(
                     playlist=playlist_name,
                     status="added",
                     applied_at=datetime.now(timezone.utc),
-                    wl_removed=wl_removed,
                 )
             )
         except Exception as e:
-            log.error("Failed to move video", video_id=vp.video_id, error=str(e))
+            log.error("Failed to add video", video_id=vp.video_id, error=str(e))
             changes.append(
                 AppliedChange(
                     video_id=vp.video_id,
@@ -62,5 +69,12 @@ def run_apply(
         total_moved=sum(1 for c in changes if c.status == "added"),
         changes=changes,
     )
-    log.info("Apply complete", total_moved=applied.total_moved, dry_run=dry_run)
+    log.info("Apply complete", total_added=applied.total_moved, dry_run=dry_run)
     return applied
+
+
+def _destination_topic(vp: VideoProposal) -> str | None:
+    """Return the topic name if the video routes to WL/<topic>, else None (→ fallback)."""
+    if vp.action == "move" and vp.predicted_topic:
+        return vp.predicted_topic
+    return None

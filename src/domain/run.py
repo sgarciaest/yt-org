@@ -14,7 +14,6 @@ class AppliedChange:
     status: ApplyStatus
     applied_at: datetime
     error: str | None = None
-    wl_removed: bool = False
 
 
 @dataclass

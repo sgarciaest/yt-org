@@ -24,3 +24,8 @@ channel_mapping:
   # Set to 0.0 to disable without removing the mapping file.
   bonus: 0.5
 
+playlists:
+  # Videos with action: keep or review are added to WL/<fallback_name>.
+  # All videos in the plan end up in some WL/* playlist after `apply`.
+  fallback_name: general
+

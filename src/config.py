@@ -47,10 +47,17 @@ class ChannelMappingConfig:
 
 
 @dataclass
+class PlaylistsConfig:
+    # Videos with action: keep or review (no topic) are added to WL/<fallback_name>.
+    fallback_name: str = "general"
+
+
+@dataclass
 class AppConfig:
     youtube: YouTubeConfig = field(default_factory=YouTubeConfig)
     classification: ClassificationConfig = field(default_factory=ClassificationConfig)
     channel_mapping: ChannelMappingConfig = field(default_factory=ChannelMappingConfig)
+    playlists: PlaylistsConfig = field(default_factory=PlaylistsConfig)
 
 
 def load_config(path: str | Path = "config/settings.yaml") -> AppConfig:
@@ -92,6 +99,9 @@ def load_config(path: str | Path = "config/settings.yaml") -> AppConfig:
     cm = data.get("channel_mapping", {})
     cfg.channel_mapping.config_file = cm.get("config_file", cfg.channel_mapping.config_file)
     cfg.channel_mapping.bonus = cm.get("bonus", cfg.channel_mapping.bonus)
+
+    pl = data.get("playlists", {})
+    cfg.playlists.fallback_name = pl.get("fallback_name", cfg.playlists.fallback_name)
 
     return cfg
 

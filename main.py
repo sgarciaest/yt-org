@@ -13,9 +13,8 @@ from classification.channel_mapper import ChannelMapper
 from classification.embeddings import EmbeddingClassifier
 from config import load_channel_mapping, load_config, load_topics_config
 from domain.topic import Topic
-from domain.video import Video
+from sources.custom_playlist_source import CustomPlaylistSource
 from sources.file_source import FileSource
-from sources.yt_api_source import YouTubeAPISource
 from sources.yt_dlp_source import YtDlpSource
 from storage.channel_map_io import load_channel_map, merge_channels, save_channel_map
 from storage.proposal_io import load_proposal, save_proposal
@@ -56,10 +55,11 @@ def cli() -> None:
     help="CSV (Google Takeout), YAML, or JSON file with Watch Later videos",
 )
 @click.option(
-    "--from-yt-api",
-    is_flag=True,
-    default=False,
-    help="YouTube Data API v3 (currently blocked by Google for Watch Later)",
+    "--from-user-playlist",
+    "from_user_playlist",
+    default=None,
+    metavar="ID_OR_URL",
+    help="A user-owned YouTube playlist (ID or full URL) used as a mirror of Watch Later",
 )
 @click.option(
     "--from-yt-dlp",
@@ -71,7 +71,7 @@ def analyze(
     config: str,
     topics: str,
     from_file: str | None,
-    from_yt_api: bool,
+    from_user_playlist: str | None,
     from_yt_dlp: bool,
 ) -> None:
     """Create a new run and classify Watch Later videos into a proposal.
@@ -82,13 +82,13 @@ def analyze(
     topic_list = _build_topics(topics)
 
     # --- validate source selection ---
-    sources_given = sum([bool(from_file), from_yt_api, from_yt_dlp])
+    sources_given = sum([bool(from_file), bool(from_user_playlist), from_yt_dlp])
     if sources_given == 0:
         raise click.UsageError(
             "Specify a source:\n"
-            "  --from-file <path>   Google Takeout CSV, YAML, or JSON  [recommended]\n"
-            "  --from-yt-api        YouTube Data API v3  [currently blocked by Google]\n"
-            "  --from-yt-dlp        yt-dlp with browser cookies  [not yet implemented]"
+            "  --from-file <path>             Google Takeout CSV, YAML, or JSON  [recommended]\n"
+            "  --from-user-playlist <ID|URL>  A user-owned playlist mirroring Watch Later\n"
+            "  --from-yt-dlp                  yt-dlp with browser cookies  [not yet implemented]"
         )
     if sources_given > 1:
         raise click.UsageError("Only one source flag may be used at a time.")
@@ -98,13 +98,16 @@ def analyze(
 
     if from_file:
         source = FileSource(Path(from_file))
-    elif from_yt_api:
+    elif from_user_playlist:
         if credentials is None:
             raise click.UsageError(
                 "client_secrets.json not found. "
-                "OAuth credentials are required for --from-yt-api."
+                "OAuth credentials are required for --from-user-playlist."
             )
-        source = YouTubeAPISource(YouTubeClient(credentials))
+        try:
+            source = CustomPlaylistSource(from_user_playlist, YouTubeClient(credentials))
+        except RuntimeError as e:
+            raise click.UsageError(str(e))
     else:
         source = YtDlpSource()
 
@@ -161,6 +164,11 @@ def analyze(
             "source": {
                 "name": source.source_name,
                 **({"file": from_file} if from_file else {}),
+                **(
+                    {"playlist_id": source.playlist_id}
+                    if isinstance(source, CustomPlaylistSource)
+                    else {}
+                ),
             },
             "videos": {
                 "fetched": len(videos),
@@ -244,31 +252,43 @@ def apply(run_id: str, config: str, dry_run: bool) -> None:
         sys.exit(1)
 
     plan = load_proposal(run.plan_path)
-    to_move = [vp for vp in plan.videos if vp.action == "move" and vp.predicted_topic]
+    fallback_name = cfg.playlists.fallback_name
 
-    if not to_move:
-        click.echo("No videos with action: move in plan.yaml. Nothing to do.")
+    if not plan.videos:
+        click.echo("Plan is empty. Nothing to do.")
         return
 
+    to_topics = [vp for vp in plan.videos if vp.action == "move" and vp.predicted_topic]
+    to_fallback = [vp for vp in plan.videos if vp not in to_topics]
+
     click.echo(f"\nRun {run.id}  |  {run.date}  |  {run.plan_path}")
-    click.echo(f"Videos to add to topic playlists: {len(to_move)}\n")
-    for vp in to_move:
+    click.echo(
+        f"Videos to add: {len(plan.videos)}  "
+        f"({len(to_topics)} to topic playlists, {len(to_fallback)} to WL/{fallback_name})\n"
+    )
+    for vp in to_topics:
         click.echo(f"  [{vp.video_id}] {vp.title!r}  →  WL/{vp.predicted_topic}")
+    for vp in to_fallback:
+        click.echo(f"  [{vp.video_id}] {vp.title!r}  →  WL/{fallback_name}  ({vp.action})")
 
     if dry_run:
         click.echo("\n[dry-run] No changes made.")
         return
 
-    click.confirm(f"\nApply {len(to_move)} changes to your YouTube account?", abort=True)
+    click.confirm(
+        f"\nApply {len(plan.videos)} changes to your YouTube account?", abort=True
+    )
 
     credentials = get_credentials(cfg.youtube.client_secrets_file, cfg.youtube.token_file)
     manager = PlaylistManager(credentials)
-    applied = run_apply(plan, manager, run_id=run.id, dry_run=False)
+    applied = run_apply(
+        plan, manager, run_id=run.id, fallback_name=fallback_name, dry_run=False
+    )
 
     save_applied(applied, run.applied_path)
     append_history(applied, RUNS_DIR / "history.yaml")
 
-    click.echo(f"\nDone. {applied.total_moved} videos moved.")
+    click.echo(f"\nDone. {applied.total_moved} videos added to WL/* playlists.")
     click.echo(f"Run audit  →  {run.applied_path}")
     click.echo(f"History    →  {RUNS_DIR / 'history.yaml'}")
 
@@ -276,8 +296,11 @@ def apply(run_id: str, config: str, dry_run: bool) -> None:
     if errors:
         click.echo(f"\n{len(errors)} error(s) — check {run.applied_path} for details", err=True)
 
-    click.echo("\nVideos are now in their topic playlists.")
-    click.echo("You can manually remove them from Watch Later.")
+    click.echo(
+        "\nAll videos are now in their WL/* playlists. "
+        "Finish by manually clearing your original Watch Later in the YouTube UI "
+        "(the API can't do this for you)."
+    )
 
 
 @cli.command(name="list")
@@ -389,10 +412,11 @@ def show(run_id: str) -> None:
     help="Add channels found in a Watch Later file (CSV/YAML/JSON)",
 )
 @click.option(
-    "--from-yt-api",
-    is_flag=True,
-    default=False,
-    help="Add channels found in Watch Later via YouTube API (currently blocked by Google)",
+    "--from-user-playlist",
+    "from_user_playlist",
+    default=None,
+    metavar="ID_OR_URL",
+    help="Add channels found in a user-owned playlist (ID or full URL)",
 )
 @click.option(
     "--output",
@@ -404,7 +428,7 @@ def channels(
     config: str,
     from_subscriptions: bool,
     from_file: str | None,
-    from_yt_api: bool,
+    from_user_playlist: str | None,
     output: str | None,
 ) -> None:
     """Build or update the channel-to-topic mapping config.
@@ -418,12 +442,12 @@ def channels(
     cfg = load_config(config)
     out_path = Path(output or cfg.channel_mapping.config_file)
 
-    if not from_subscriptions and not from_file and not from_yt_api:
+    if not from_subscriptions and not from_file and not from_user_playlist:
         raise click.UsageError(
             "Specify at least one source:\n"
-            "  --from-subscriptions   Your YouTube subscriptions\n"
-            "  --from-file <path>     Watch Later CSV/YAML/JSON\n"
-            "  --from-yt-api          Watch Later via YouTube API (blocked)"
+            "  --from-subscriptions           Your YouTube subscriptions\n"
+            "  --from-file <path>             Watch Later CSV/YAML/JSON\n"
+            "  --from-user-playlist <ID|URL>  A user-owned playlist mirroring Watch Later"
         )
 
     credentials = _load_credentials_if_available(cfg)
@@ -445,12 +469,15 @@ def channels(
     wl_source = None
     if from_file:
         wl_source = FileSource(Path(from_file))
-    elif from_yt_api:
+    elif from_user_playlist:
         if credentials is None:
             raise click.UsageError(
-                "client_secrets.json not found. OAuth is required for --from-yt-api."
+                "client_secrets.json not found. OAuth is required for --from-user-playlist."
             )
-        wl_source = YouTubeAPISource(YouTubeClient(credentials))
+        try:
+            wl_source = CustomPlaylistSource(from_user_playlist, YouTubeClient(credentials))
+        except RuntimeError as e:
+            raise click.UsageError(str(e))
 
     if wl_source is not None:
         try:

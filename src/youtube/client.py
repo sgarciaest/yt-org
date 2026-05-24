@@ -14,52 +14,23 @@ class YouTubeClient:
     def __init__(self, credentials: Credentials) -> None:
         self._yt = build("youtube", "v3", credentials=credentials)
 
-    def get_watch_later_videos(self) -> list[Video]:
-        playlist_id = self._resolve_watch_later_id()
-        return self._list_playlist_videos(playlist_id)
-
-    def _resolve_watch_later_id(self) -> str:
-        try:
-            response = (
-                self._yt.channels()
-                .list(part="contentDetails", mine=True)
-                .execute()
-            )
-            items = response.get("items", [])
-            if items:
-                return items[0]["contentDetails"]["relatedPlaylists"].get(
-                    "watchLater", "WL"
-                )
-        except HttpError as e:
-            log.warning("Could not get channel details, using WL fallback", error=str(e))
-        return "WL"
-
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=15))
-    def _list_playlist_videos(self, playlist_id: str) -> list[Video]:
+    def get_playlist_videos(self, playlist_id: str) -> list[Video]:
+        """List all videos in a user-owned playlist."""
         videos: list[Video] = []
         next_page_token: str | None = None
 
         while True:
-            try:
-                response = (
-                    self._yt.playlistItems()
-                    .list(
-                        part="snippet,contentDetails",
-                        playlistId=playlist_id,
-                        maxResults=50,
-                        pageToken=next_page_token,
-                    )
-                    .execute()
+            response = (
+                self._yt.playlistItems()
+                .list(
+                    part="snippet,contentDetails",
+                    playlistId=playlist_id,
+                    maxResults=50,
+                    pageToken=next_page_token,
                 )
-            except HttpError as e:
-                if e.resp.status in (403, 404):
-                    log.warning(
-                        "Watch Later playlist is not accessible via the API",
-                        status=e.resp.status,
-                        tip="Export Watch Later from YouTube and pass it with --from-file",
-                    )
-                    return []
-                raise
+                .execute()
+            )
 
             for item in response.get("items", []):
                 video = _parse_playlist_item(item)
@@ -70,7 +41,7 @@ class YouTubeClient:
             if not next_page_token:
                 break
 
-        log.info("Fetched videos from Watch Later", count=len(videos))
+        log.info("Fetched videos from playlist", playlist_id=playlist_id, count=len(videos))
         return videos
 
     def enrich_videos(self, videos: list[Video]) -> list[Video]:
