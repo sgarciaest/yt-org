@@ -6,6 +6,12 @@ from domain.topic import Topic
 from domain.video import Video
 
 
+def _uses_e5_prefixes(model_name: str) -> bool:
+    # E5 models (intfloat/e5-*, intfloat/multilingual-e5-*) expect
+    # "query: " / "passage: " prefixes for asymmetric retrieval tasks.
+    return "e5" in model_name.lower()
+
+
 class EmbeddingClassifier:
     """Zero-shot classifier using per-field max-pool cosine similarity.
 
@@ -20,7 +26,7 @@ class EmbeddingClassifier:
 
     def __init__(
         self,
-        model_name: str = "paraphrase-multilingual-MiniLM-L12-v2",
+        model_name: str = "intfloat/multilingual-e5-base",
         fields: dict[str, bool] | None = None,
     ) -> None:
         self._model = SentenceTransformer(model_name)
@@ -31,9 +37,12 @@ class EmbeddingClassifier:
             "description": True,
         }
         self._topic_embeddings: dict[str, np.ndarray] = {}
+        _e5 = _uses_e5_prefixes(model_name)
+        self._query_prefix = "query: " if _e5 else ""
+        self._passage_prefix = "passage: " if _e5 else ""
 
     def fit(self, topics: list[Topic]) -> None:
-        topic_texts = [f"{t.name}: {t.description}" for t in topics]
+        topic_texts = [f"{self._passage_prefix}{t.name}: {t.description}" for t in topics]
         embeddings: np.ndarray = self._model.encode(
             topic_texts, normalize_embeddings=True, show_progress_bar=False
         )
@@ -59,11 +68,11 @@ class EmbeddingClassifier:
         return ClassificationResult(scores)
 
     def _collect_enabled_fields(self, video: Video) -> list[str]:
-        """Return non-empty field texts for enabled fields."""
+        """Return non-empty field texts for enabled fields, with model-appropriate prefixes."""
         candidates = [
             (video.title, self._fields.get("title", True)),
             (" ".join(video.tags), self._fields.get("tags", True)),
             (video.channel_name, self._fields.get("channel", True)),
             (video.description[:500], self._fields.get("description", True)),
         ]
-        return [text for text, enabled in candidates if enabled and text]
+        return [self._query_prefix + text for text, enabled in candidates if enabled and text]

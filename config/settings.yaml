@@ -3,6 +3,7 @@ youtube:
   token_file: .token.json
 
 classification:
+  # model: intfloat/multilingual-e5-base # or `paraphrase-multilingual-MiniLM-L12-v2`
   model: paraphrase-multilingual-MiniLM-L12-v2
 
   fields:

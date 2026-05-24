@@ -28,7 +28,7 @@ class ThresholdsConfig:
 
 @dataclass
 class ClassificationConfig:
-    model: str = "paraphrase-multilingual-MiniLM-L12-v2"
+    model: str = "intfloat/multilingual-e5-base"
     fields: FieldsConfig = field(default_factory=FieldsConfig)
     thresholds: ThresholdsConfig = field(default_factory=ThresholdsConfig)
     top_n_alternatives: int = 3
